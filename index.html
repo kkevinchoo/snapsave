@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clipboard Images Minimalista</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    colors: {
+                        gray: {
+                            50: '#f9fafb',
+                            100: '#f3f4f6',
+                            200: '#e5e7eb',
+                            300: '#d1d5db',
+                            400: '#9ca3af',
+                            500: '#6b7280',
+                            600: '#4b5563',
+                            700: '#374151',
+                            800: '#1f2937',
+                            900: '#111827',
+                        }
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.3s ease-out',
+                        'slide-in': 'slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(5px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideIn: {
+                            '0%': { transform: 'translateX(100%)' },
+                            '100%': { transform: 'translateX(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .drop-zone-active {
+            @apply border-blue-400 bg-blue-50 transform scale-[1.01];
+        }
+    </style>
+</head>
+<body class="font-sans bg-gray-50 text-gray-900 min-h-screen p-4 sm:p-6 antialiased">
+    <div class="max-w-3xl mx-auto py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">
+                Pega imágenes
+            </h1>
+            <p class="text-gray-500 text-base">
+                Pega o arrastra imágenes para guardarlas y descargarlas.
+            </p>
+        </header>
+
+        <div id="dropZone" 
+             class="bg-white border-2 border-dashed border-gray-200 rounded-lg p-10 text-center transition-all duration-200 cursor-pointer mb-8
+                    hover:border-blue-300 hover:bg-blue-50
+                    focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-50" 
+             tabindex="0"
+             aria-label="Zona para pegar o arrastrar imágenes"
+             aria-describedby="dropZoneDescription">
+            <div class="flex flex-col items-center">
+                <div class="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white text-xl mb-4 shadow-md">
+                    📋
+                </div>
+                <div class="text-lg font-medium text-gray-700 mb-1">
+                    Pega tu imagen aquí
+                </div>
+                <div id="dropZoneDescription" class="text-sm text-gray-400">
+                    Ctrl+V o arrastra una imagen.
+                </div>
+            </div>
+        </div>
+
+        <section class="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+            <div class="flex justify-between items-center mb-5">
+                <h2 class="text-xl font-semibold text-gray-800">
+                    Historial
+                </h2>
+                <button id="clearBtn" 
+                        class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-500 bg-transparent border border-gray-200 rounded-md
+                               transition-all duration-200 hover:border-red-400 hover:text-red-600 hover:bg-red-50
+                               disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500 disabled:hover:bg-transparent
+                               focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:ring-offset-gray-50" 
+                        disabled>
+                    <span class="text-red-500">🗑</span>
+                    Limpiar
+                </button>
+            </div>
+            
+            <div id="historyGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                <div class="col-span-full text-center py-8 text-gray-400">
+                    <div class="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
+                        🖼️
+                    </div>
+                    <p>No hay imágenes guardadas</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div id="toast" 
+         class="fixed top-4 right-4 bg-white border rounded-lg p-3 shadow-lg transform translate-x-full transition-transform duration-300 z-50 flex items-center gap-3 max-w-xs sm:max-w-sm text-sm"
+         role="alert"
+         aria-live="polite">
+        <span id="toastIcon" class="text-base"></span>
+        <span id="toastMessage" class="font-medium"></span>
+    </div>
+
+    <script>
+        class ClipboardImageManager {
+            constructor() {
+                this.history = JSON.parse(localStorage.getItem('clipboardImages') || '[]');
+                this.maxHistory = 10;
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.render();
+            }
+
+            setupEventListeners() {
+                const dropZone = document.getElementById('dropZone');
+                const clearBtn = document.getElementById('clearBtn');
+
+                document.addEventListener('paste', (e) => this.handlePaste(e));
+                
+                dropZone.addEventListener('click', () => dropZone.focus());
+                dropZone.addEventListener('dragover', this.handleDragOver.bind(this));
+                dropZone.addEventListener('dragleave', this.handleDragLeave.bind(this));
+                dropZone.addEventListener('drop', this.handleDrop.bind(this));
+
+                clearBtn.addEventListener('click', this.clearHistory.bind(this));
+
+                document.addEventListener('dragover', (e) => e.preventDefault());
+                document.addEventListener('drop', (e) => e.preventDefault());
+            }
+
+            handleDragOver(e) {
+                e.preventDefault();
+                e.currentTarget.classList.add('drop-zone-active');
+            }
+
+            handleDragLeave(e) {
+                e.currentTarget.classList.remove('drop-zone-active');
+            }
+
+            async handleDrop(e) {
+                e.preventDefault();
+                e.currentTarget.classList.remove('drop-zone-active');
+                
+                const files = Array.from(e.dataTransfer.files);
+                const imageFile = files.find(file => file.type.startsWith('image/'));
+                
+                if (imageFile) {
+                    await this.processImage(imageFile);
+                } else {
+                    this.showToast('Solo se aceptan imágenes', 'error', '❌');
+                }
+            }
+
+            async handlePaste(e) {
+                const items = Array.from(e.clipboardData.items);
+                const imageItem = items.find(item => item.type.startsWith('image/'));
+                
+                if (imageItem) {
+                    const file = imageItem.getAsFile();
+                    await this.processImage(file);
+                } else {
+                    if (e.clipboardData.getData('text/plain') || e.clipboardData.files.length > 0) {
+                        this.showToast('Lo pegado no es una imagen', 'error', '❌');
+                    }
+                }
+            }
+
+            async processImage(file) {
+                try {
+                    const imageData = await this.fileToDataURL(file);
+                    const imageInfo = {
+                        id: Date.now(),
+                        data: imageData,
+                        name: `imagen_${new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')}.${this.getExtension(file.type)}`,
+                        timestamp: new Date().toLocaleString('es-ES', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        }),
+                        type: file.type
+                    };
+
+                    this.addToHistory(imageInfo);
+                    this.downloadImage(imageInfo);
+                    this.showToast('Imagen descargada con éxito', 'success', '✅');
+                } catch (error) {
+                    console.error('Error al procesar la imagen:', error);
+                    this.showToast('Error al procesar la imagen', 'error', '❌');
+                }
+            }
+
+            fileToDataURL(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = (error) => reject(error);
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            getExtension(mimeType) {
+                const extensions = {
+                    'image/jpeg': 'jpg',
+                    'image/png': 'png',
+                    'image/gif': 'gif',
+                    'image/webp': 'webp',
+                    'image/bmp': 'bmp',
+                    'image/tiff': 'tiff'
+                };
+                return extensions[mimeType] || 'png';
+            }
+
+            addToHistory(imageInfo) {
+                this.history.unshift(imageInfo);
+                if (this.history.length > this.maxHistory) {
+                    this.history = this.history.slice(0, this.maxHistory);
+                }
+                this.saveHistory();
+                this.render();
+            }
+
+            saveHistory() {
+                localStorage.setItem('clipboardImages', JSON.stringify(this.history));
+            }
+
+            render() {
+                this.renderHistory();
+                this.updateClearButton();
+            }
+
+            renderHistory() {
+                const grid = document.getElementById('historyGrid');
+                
+                if (this.history.length === 0) {
+                    grid.innerHTML = `
+                        <div class="col-span-full text-center py-8 text-gray-400">
+                            <div class="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
+                                🖼️
+                            </div>
+                            <p>No hay imágenes guardadas</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                grid.innerHTML = this.history.map(item => `
+                    <div class="bg-white border border-gray-200 rounded-lg overflow-hidden transition-all duration-200 
+                                hover:shadow-md hover:border-gray-300 transform hover:-translate-y-0.5 animate-fade-in group flex flex-col">
+                        <div class="aspect-square overflow-hidden bg-gray-50 flex-shrink-0">
+                            <img src="${item.data}" 
+                                 alt="Imagen capturada" 
+                                 class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" 
+                                 loading="lazy">
+                        </div>
+                        <div class="p-3 flex flex-col justify-between flex-grow">
+                            <div class="text-xs text-gray-400 mb-2">
+                                ${item.timestamp}
+                            </div>
+                            <div class="flex gap-2 mt-auto">
+                                <button onclick="manager.downloadImage(${this.escapeJson(item)})"
+                                        title="Descargar imagen"
+                                        class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-md 
+                                               transition-all duration-200 hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-white">
+                                    ⬇ Descargar
+                                </button>
+                                <button onclick="manager.deleteImage(${item.id})"
+                                        title="Eliminar imagen"
+                                        class="px-2 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-md 
+                                               transition-all duration-200 hover:bg-red-100 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:ring-offset-white">
+                                    🗑
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            escapeJson(obj) {
+                return JSON.stringify(obj).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
+            }
+
+            downloadImage(imageInfo) {
+                const link = document.createElement('a');
+                link.href = imageInfo.data;
+                link.download = imageInfo.name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            deleteImage(id) {
+                this.history = this.history.filter(item => item.id !== id);
+                this.saveHistory();
+                this.render();
+                this.showToast('Imagen eliminada', 'success', '🗑️');
+            }
+
+            clearHistory() {
+                if (this.history.length === 0) return;
+                
+                if (confirm('¿Estás seguro de que quieres eliminar todas las imágenes del historial?')) {
+                    this.history = [];
+                    this.saveHistory();
+                    this.render();
+                    this.showToast('Historial limpiado', 'success', '✨');
+                }
+            }
+
+            updateClearButton() {
+                const clearBtn = document.getElementById('clearBtn');
+                clearBtn.disabled = this.history.length === 0;
+            }
+
+            showToast(message, type = 'error', icon = '') {
+                const toast = document.getElementById('toast');
+                const iconEl = document.getElementById('toastIcon');
+                const messageEl = document.getElementById('toastMessage');
+                
+                iconEl.textContent = icon;
+                messageEl.textContent = message;
+                
+                toast.className = 'fixed top-4 right-4 bg-white border rounded-lg p-3 shadow-lg transform translate-x-full transition-transform duration-300 z-50 flex items-center gap-3 max-w-xs sm:max-w-sm text-sm';
+                
+                if (type === 'success') {
+                    toast.classList.add('border-green-200', 'bg-green-50');
+                    messageEl.classList.add('text-green-700');
+                    iconEl.classList.add('text-green-500');
+                } else {
+                    toast.classList.add('border-red-200', 'bg-red-50');
+                    messageEl.classList.add('text-red-700');
+                    iconEl.classList.add('text-red-500');
+                }
+                
+                toast.classList.remove('translate-x-full');
+                toast.classList.add('translate-x-0', 'animate-slide-in');
+
+                setTimeout(() => {
+                    toast.classList.remove('translate-x-0', 'animate-slide-in');
+                    toast.classList.add('translate-x-full');
+                }, 3000);
+            }
+        }
+
+        const manager = new ClipboardImageManager();
+    </script>
+</body>
+</html>
